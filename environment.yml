@@ -1,0 +1,31 @@
+# Environment for cjm-media-plugin-lavasr
+# Provides LavaSR v2 speech enhancement with PyTorch CUDA support
+name: cjm-media-plugin-lavasr
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  # Python version
+  - python=3.12
+
+  # Pip dependencies
+  - pip
+  - pip:
+    # PyTorch with CUDA
+    - torch
+
+    # Core plugin infrastructure
+    - cjm-plugin-system
+    - cjm-media-plugin-system
+
+    # LavaSR (from upstream GitHub)
+    - LavaSR @ git+https://github.com/ysharma3501/LavaSR.git
+
+    # Utilities
+    - fastcore
+
+    # Worker dependencies
+    - fastapi
+    - uvicorn
+    - psutil
+    - httpx

@@ -8,3 +8,191 @@
 ``` bash
 pip install cjm_media_plugin_lavasr
 ```
+
+## Project Structure
+
+    nbs/
+    ├── meta.ipynb   # Metadata introspection for the LavaSR plugin used by cjm-ctl to generate the registration manifest.
+    └── plugin.ipynb # LavaSR v2 speech enhancement plugin — provides bandwidth extension and optional denoising to improve speech audio quality before transcription.
+
+Total: 2 notebooks
+
+## Module Dependencies
+
+``` mermaid
+graph LR
+    meta[meta<br/>Metadata]
+    plugin[plugin<br/>Plugin]
+```
+
+No cross-module dependencies detected.
+
+## CLI Reference
+
+No CLI commands found in this project.
+
+## Module Overview
+
+Detailed documentation for each module in the project:
+
+### Metadata (`meta.ipynb`)
+
+> Metadata introspection for the LavaSR plugin used by cjm-ctl to
+> generate the registration manifest.
+
+#### Import
+
+``` python
+from cjm_media_plugin_lavasr.meta import (
+    get_plugin_metadata
+)
+```
+
+#### Functions
+
+``` python
+def get_plugin_metadata() -> Dict[str, Any]:  # Plugin metadata for manifest generation
+    """Return metadata required to register this plugin with the PluginManager."""
+    # Fallback base path (current behavior for backward compatibility)
+    base_path = os.path.dirname(os.path.dirname(sys.executable))
+    
+    # Use CJM config if available, else fallback to env-relative paths
+    cjm_data_dir = os.environ.get("CJM_DATA_DIR")
+    cjm_models_dir = os.environ.get("CJM_MODELS_DIR")
+    
+    # Plugin data directory
+    plugin_name = "cjm-media-plugin-lavasr"
+    if cjm_data_dir
+    "Return metadata required to register this plugin with the PluginManager."
+```
+
+### Plugin (`plugin.ipynb`)
+
+> LavaSR v2 speech enhancement plugin — provides bandwidth extension and
+> optional denoising to improve speech audio quality before
+> transcription.
+
+#### Import
+
+``` python
+from cjm_media_plugin_lavasr.plugin import (
+    LavaSRPluginConfig,
+    LavaSRProcessingPlugin
+)
+```
+
+#### Classes
+
+``` python
+@dataclass
+class LavaSRPluginConfig:
+    "Configuration for the LavaSR speech enhancement plugin."
+    
+    model_path: str = field(...)
+    device: str = field(...)
+    denoise: bool = field(...)
+    enhance: bool = field(...)
+    batch_mode: bool = field(...)
+    input_sr: int = field(...)
+    cutoff: Optional[int] = field(...)
+    output_format: str = field(...)
+```
+
+``` python
+class LavaSRProcessingPlugin:
+    def __init__(self):
+        """Initialize the plugin."""
+        self.logger = logging.getLogger(f"{__name__}.{type(self).__name__}")
+        self.config: Optional[LavaSRPluginConfig] = None
+    "LavaSR v2 speech enhancement plugin for bandwidth extension and denoising."
+    
+    def __init__(self):
+            """Initialize the plugin."""
+            self.logger = logging.getLogger(f"{__name__}.{type(self).__name__}")
+            self.config: Optional[LavaSRPluginConfig] = None
+        "Initialize the plugin."
+    
+    def name(self) -> str:  # Plugin name identifier
+            """Get the plugin name."""
+            return "cjm-media-plugin-lavasr"
+        
+        @property
+        def version(self) -> str:  # Plugin version string
+        "Get the plugin name."
+    
+    def version(self) -> str:  # Plugin version string
+            """Get the plugin version."""
+            from cjm_media_plugin_lavasr import __version__
+            return __version__
+        
+        @property
+        def supported_media_types(self) -> List[str]:  # Supported media types
+        "Get the plugin version."
+    
+    def supported_media_types(self) -> List[str]:  # Supported media types
+            """Get supported media types."""
+            return ["audio"]
+        
+        # ── Lifecycle ────────────────────────────────────────────────────
+        
+        def initialize(self,
+                       config: Optional[Any] = None,  # Configuration dict or None for defaults
+                      ) -> None
+        "Get supported media types."
+    
+    def initialize(self,
+                       config: Optional[Any] = None,  # Configuration dict or None for defaults
+                      ) -> None
+        "Initialize plugin with configuration."
+    
+    def cleanup(self) -> None:
+            """Clean up plugin resources."""
+            self._unload_model()
+            self.logger.info("Plugin cleaned up")
+        
+        def is_available(self) -> bool:  # Whether the plugin can run
+        "Clean up plugin resources."
+    
+    def is_available(self) -> bool:  # Whether the plugin can run
+            """Check if the plugin is available on this system."""
+            try
+        "Check if the plugin is available on this system."
+    
+    def get_config_schema(self) -> Dict[str, Any]:  # JSON Schema for UI forms
+            """Return JSON Schema for the plugin configuration."""
+            return dataclass_to_jsonschema(LavaSRPluginConfig)
+        
+        def get_current_config(self) -> Dict[str, Any]:  # Current config as dict
+        "Return JSON Schema for the plugin configuration."
+    
+    def get_current_config(self) -> Dict[str, Any]:  # Current config as dict
+            """Return the current configuration."""
+            return config_to_dict(self.config) if self.config else {}
+        
+        # ── Model Management ────────────────────────────────────────────
+        
+        def _load_model(self) -> None
+        "Return the current configuration."
+    
+    def execute(self,
+                    action: str = "enhance_speech",  # Action to perform
+                    **kwargs
+                   ) -> Dict[str, Any]:  # Action result
+        "Dispatch to the appropriate action handler."
+    
+    def get_info(self,
+                     file_path: str,  # Path to audio file
+                    ) -> MediaMetadata:  # File metadata
+        "Get basic audio file metadata via soundfile."
+    
+    def convert(self, input_path, output_format, **kwargs):
+            """Not applicable for speech enhancement."""
+            raise ValueError("convert is not supported by the LavaSR plugin. "
+                             "Use 'enhance_speech' instead.")
+        
+        def extract_segment(self, input_path, start, end, output_path=None)
+        "Not applicable for speech enhancement."
+    
+    def extract_segment(self, input_path, start, end, output_path=None)
+        "Not applicable for speech enhancement."
+```

@@ -1,0 +1,17 @@
+plugins:
+  # ----------------------------------------------------------------
+  # Media Processing: LavaSR (this library)
+  # ----------------------------------------------------------------
+  - name: lavasr
+    env_name: test-lavasr
+    
+    # Environment File
+    env_file: "./environment.yml"
+    
+    # The Plugin Package
+    package: "/mnt/SN850X_8TB_EXT4/Projects/GitHub/cj-mills/cjm-media-plugin-lavasr/"
+    
+    # Interface Libraries
+    interface_libs:
+      - "git+https://github.com/cj-mills/cjm-plugin-system.git"
+      - "git+https://github.com/cj-mills/cjm-media-plugin-system.git"
