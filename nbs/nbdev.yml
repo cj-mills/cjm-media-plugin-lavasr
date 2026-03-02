@@ -1,0 +1,9 @@
+project:
+  output-dir: _docs
+
+website:
+  title: "cjm-media-plugin-lavasr"
+  site-url: "https://cj-mills.github.io/cjm-media-plugin-lavasr"
+  description: "LavaSR speech enhancement plugin for the cjm-plugin-system that provides bandwidth extension and denoising to improve speech audio quality before transcription."
+  repo-branch: main
+  repo-url: "https://github.com/cj-mills/cjm-media-plugin-lavasr"
