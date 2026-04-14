@@ -1,11 +1,30 @@
 [build-system]
-requires = ["setuptools>=64.0,<76.0"]
+requires = ["setuptools>=64"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name="cjm-media-plugin-lavasr"
-requires-python=">=3.12"
-dynamic = [ "keywords", "description", "version", "dependencies", "optional-dependencies", "readme", "license", "authors", "classifiers", "entry-points", "scripts", "urls"]
+name = "cjm-media-plugin-lavasr"
+dynamic = ["version"]
+description = "LavaSR speech enhancement plugin for the cjm-plugin-system that provides bandwidth extension and denoising to improve speech audio quality before transcription."
+readme = "README.md"
+requires-python = ">=3.12"
+license = {text = "Apache-2.0"}
+authors = [{name = "Christian J. Mills", email = "9126128+cj-mills@users.noreply.github.com"}]
+keywords = ['nbdev', 'jupyter', 'notebook', 'python']
+classifiers = ["Natural Language :: English", "Intended Audience :: Developers", "Development Status :: 3 - Alpha", "Programming Language :: Python :: 3", "Programming Language :: Python :: 3 :: Only"]
+dependencies = ['cjm_media_plugin_system', 'LavaSR@git+https://github.com/ysharma3501/LavaSR.git']
 
-[tool.uv]
-cache-keys = [{ file = "pyproject.toml" }, { file = "settings.ini" }, { file = "setup.py" }]
+[project.urls]
+Repository = "https://github.com/cj-mills/cjm-media-plugin-lavasr"
+Documentation = "https://cj-mills.github.io/cjm-media-plugin-lavasr"
+
+[project.entry-points.nbdev]
+cjm_media_plugin_lavasr = "cjm_media_plugin_lavasr._modidx:d"
+
+[tool.setuptools.dynamic]
+version = {attr = "cjm_media_plugin_lavasr.__version__"}
+
+[tool.setuptools.packages.find]
+include = ["cjm_media_plugin_lavasr"]
+
+[tool.nbdev]
