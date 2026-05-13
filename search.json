@@ -1,0 +1,92 @@
+[
+  {
+    "objectID": "index.html",
+    "href": "index.html",
+    "title": "cjm-media-plugin-lavasr",
+    "section": "",
+    "text": "pip install cjm_media_plugin_lavasr",
+    "crumbs": [
+      "cjm-media-plugin-lavasr"
+    ]
+  },
+  {
+    "objectID": "index.html#install",
+    "href": "index.html#install",
+    "title": "cjm-media-plugin-lavasr",
+    "section": "",
+    "text": "pip install cjm_media_plugin_lavasr",
+    "crumbs": [
+      "cjm-media-plugin-lavasr"
+    ]
+  },
+  {
+    "objectID": "index.html#project-structure",
+    "href": "index.html#project-structure",
+    "title": "cjm-media-plugin-lavasr",
+    "section": "Project Structure",
+    "text": "Project Structure\nnbs/\n├── meta.ipynb   # Metadata introspection for the LavaSR plugin used by cjm-ctl to generate the registration manifest.\n└── plugin.ipynb # LavaSR v2 speech enhancement plugin — provides bandwidth extension and optional denoising to improve speech audio quality before transcription.\nTotal: 2 notebooks",
+    "crumbs": [
+      "cjm-media-plugin-lavasr"
+    ]
+  },
+  {
+    "objectID": "index.html#module-dependencies",
+    "href": "index.html#module-dependencies",
+    "title": "cjm-media-plugin-lavasr",
+    "section": "Module Dependencies",
+    "text": "Module Dependencies\ngraph LR\n    meta[meta&lt;br/&gt;Metadata]\n    plugin[plugin&lt;br/&gt;Plugin]\n\nNo cross-module dependencies detected.",
+    "crumbs": [
+      "cjm-media-plugin-lavasr"
+    ]
+  },
+  {
+    "objectID": "index.html#cli-reference",
+    "href": "index.html#cli-reference",
+    "title": "cjm-media-plugin-lavasr",
+    "section": "CLI Reference",
+    "text": "CLI Reference\nNo CLI commands found in this project.",
+    "crumbs": [
+      "cjm-media-plugin-lavasr"
+    ]
+  },
+  {
+    "objectID": "index.html#module-overview",
+    "href": "index.html#module-overview",
+    "title": "cjm-media-plugin-lavasr",
+    "section": "Module Overview",
+    "text": "Module Overview\nDetailed documentation for each module in the project:\n\nMetadata (meta.ipynb)\n\nMetadata introspection for the LavaSR plugin used by cjm-ctl to generate the registration manifest.\n\n\nImport\nfrom cjm_media_plugin_lavasr.meta import (\n    get_plugin_metadata\n)\n\n\nFunctions\ndef get_plugin_metadata() -&gt; Dict[str, Any]:  # Plugin metadata for manifest generation\n    \"\"\"Return metadata required to register this plugin with the PluginManager.\"\"\"\n    # Fallback base path (current behavior for backward compatibility)\n    base_path = os.path.dirname(os.path.dirname(sys.executable))\n    \n    # Use CJM config if available, else fallback to env-relative paths\n    cjm_data_dir = os.environ.get(\"CJM_DATA_DIR\")\n    cjm_models_dir = os.environ.get(\"CJM_MODELS_DIR\")\n    \n    # Plugin data directory\n    plugin_name = \"cjm-media-plugin-lavasr\"\n    if cjm_data_dir\n    \"Return metadata required to register this plugin with the PluginManager.\"\n\n\n\nPlugin (plugin.ipynb)\n\nLavaSR v2 speech enhancement plugin — provides bandwidth extension and optional denoising to improve speech audio quality before transcription.\n\n\nImport\nfrom cjm_media_plugin_lavasr.plugin import (\n    LavaSRPluginConfig,\n    LavaSRProcessingPlugin\n)\n\n\nClasses\n@dataclass\nclass LavaSRPluginConfig:\n    \"Configuration for the LavaSR speech enhancement plugin.\"\n    \n    model_path: str = field(...)\n    device: str = field(...)\n    denoise: bool = field(...)\n    enhance: bool = field(...)\n    batch_mode: bool = field(...)\n    input_sr: int = field(...)\n    cutoff: Optional[int] = field(...)\n    output_format: str = field(...)\nclass LavaSRProcessingPlugin:\n    def __init__(self):\n        \"\"\"Initialize the plugin.\"\"\"\n        self.logger = logging.getLogger(f\"{__name__}.{type(self).__name__}\")\n        self.config: Optional[LavaSRPluginConfig] = None\n    \"LavaSR v2 speech enhancement plugin for bandwidth extension and denoising.\"\n    \n    def __init__(self):\n            \"\"\"Initialize the plugin.\"\"\"\n            self.logger = logging.getLogger(f\"{__name__}.{type(self).__name__}\")\n            self.config: Optional[LavaSRPluginConfig] = None\n        \"Initialize the plugin.\"\n    \n    def name(self) -&gt; str:  # Plugin name identifier\n            \"\"\"Get the plugin name.\"\"\"\n            return \"cjm-media-plugin-lavasr\"\n        \n        @property\n        def version(self) -&gt; str:  # Plugin version string\n        \"Get the plugin name.\"\n    \n    def version(self) -&gt; str:  # Plugin version string\n            \"\"\"Get the plugin version.\"\"\"\n            from cjm_media_plugin_lavasr import __version__\n            return __version__\n        \n        @property\n        def supported_media_types(self) -&gt; List[str]:  # Supported media types\n        \"Get the plugin version.\"\n    \n    def supported_media_types(self) -&gt; List[str]:  # Supported media types\n            \"\"\"Get supported media types.\"\"\"\n            return [\"audio\"]\n        \n        # ── Lifecycle ────────────────────────────────────────────────────\n        \n        def initialize(self,\n                       config: Optional[Any] = None,  # Configuration dict or None for defaults\n                      ) -&gt; None\n        \"Get supported media types.\"\n    \n    def initialize(self,\n                       config: Optional[Any] = None,  # Configuration dict or None for defaults\n                      ) -&gt; None\n        \"Initialize plugin with configuration.\"\n    \n    def cleanup(self) -&gt; None:\n            \"\"\"Clean up plugin resources.\"\"\"\n            self._unload_model()\n            self.logger.info(\"Plugin cleaned up\")\n        \n        def is_available(self) -&gt; bool:  # Whether the plugin can run\n        \"Clean up plugin resources.\"\n    \n    def is_available(self) -&gt; bool:  # Whether the plugin can run\n            \"\"\"Check if the plugin is available on this system.\"\"\"\n            try\n        \"Check if the plugin is available on this system.\"\n    \n    def get_config_schema(self) -&gt; Dict[str, Any]:  # JSON Schema for UI forms\n            \"\"\"Return JSON Schema for the plugin configuration.\"\"\"\n            return dataclass_to_jsonschema(LavaSRPluginConfig)\n        \n        def get_current_config(self) -&gt; Dict[str, Any]:  # Current config as dict\n        \"Return JSON Schema for the plugin configuration.\"\n    \n    def get_current_config(self) -&gt; Dict[str, Any]:  # Current config as dict\n            \"\"\"Return the current configuration.\"\"\"\n            return config_to_dict(self.config) if self.config else {}\n        \n        # ── Model Management ────────────────────────────────────────────\n        \n        def _load_model(self) -&gt; None\n        \"Return the current configuration.\"\n    \n    def execute(self,\n                    action: str = \"enhance_speech\",  # Action to perform\n                    **kwargs\n                   ) -&gt; Dict[str, Any]:  # Action result\n        \"Dispatch to the appropriate action handler.\"\n    \n    def get_info(self,\n                     file_path: str,  # Path to audio file\n                    ) -&gt; MediaMetadata:  # File metadata\n        \"Get basic audio file metadata via soundfile.\"\n    \n    def convert(self, input_path, output_format, **kwargs):\n            \"\"\"Not applicable for speech enhancement.\"\"\"\n            raise ValueError(\"convert is not supported by the LavaSR plugin. \"\n                             \"Use 'enhance_speech' instead.\")\n        \n        def extract_segment(self, input_path, start, end, output_path=None)\n        \"Not applicable for speech enhancement.\"\n    \n    def extract_segment(self, input_path, start, end, output_path=None)\n        \"Not applicable for speech enhancement.\"",
+    "crumbs": [
+      "cjm-media-plugin-lavasr"
+    ]
+  },
+  {
+    "objectID": "meta.html#testing",
+    "href": "meta.html#testing",
+    "title": "Metadata",
+    "section": "Testing",
+    "text": "Testing\n\nimport json\n\nmetadata = get_plugin_metadata()\nprint(json.dumps(metadata, indent=2))\n\n{\n  \"name\": \"cjm-media-plugin-lavasr\",\n  \"version\": \"0.0.1\",\n  \"type\": \"media-processing\",\n  \"category\": \"media\",\n  \"interface\": \"cjm_media_plugin_system.processing_interface.MediaProcessingPlugin\",\n  \"module\": \"cjm_media_plugin_lavasr.plugin\",\n  \"class\": \"LavaSRProcessingPlugin\",\n  \"python_path\": \"/opt/hostedtoolcache/Python/3.12.13/x64/bin/python\",\n  \"db_path\": \"/opt/hostedtoolcache/Python/3.12.13/x64/data/lavasr_jobs.db\",\n  \"resources\": {\n    \"requires_gpu\": false,\n    \"min_gpu_vram_mb\": 512,\n    \"recommended_gpu_vram_mb\": 1024,\n    \"min_system_ram_mb\": 2048\n  },\n  \"env_vars\": {\n    \"HF_HOME\": \"/opt/hostedtoolcache/Python/3.12.13/x64/.cache/huggingface\"\n  }\n}",
+    "crumbs": [
+      "Metadata"
+    ]
+  },
+  {
+    "objectID": "plugin.html#configuration",
+    "href": "plugin.html#configuration",
+    "title": "Plugin",
+    "section": "Configuration",
+    "text": "Configuration\n\n\nLavaSRPluginConfig\n\ndef LavaSRPluginConfig(\n    model_path:str='YatharthS/LavaSR', device:str='auto', denoise:bool=True, enhance:bool=True, batch_mode:bool=True,\n    input_sr:int=16000, cutoff:Optional=None, output_format:str='wav'\n)-&gt;None:\n\nConfiguration for the LavaSR speech enhancement plugin.",
+    "crumbs": [
+      "Plugin"
+    ]
+  },
+  {
+    "objectID": "plugin.html#plugin-class",
+    "href": "plugin.html#plugin-class",
+    "title": "Plugin",
+    "section": "Plugin Class",
+    "text": "Plugin Class\n\n\nLavaSRProcessingPlugin\n\ndef LavaSRProcessingPlugin(\n    \n):\n\nLavaSR v2 speech enhancement plugin for bandwidth extension and denoising.",
+    "crumbs": [
+      "Plugin"
+    ]
+  }
+]
