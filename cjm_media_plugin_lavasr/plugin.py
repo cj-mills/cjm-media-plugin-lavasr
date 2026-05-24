@@ -21,6 +21,9 @@ from cjm_media_plugin_system.core import MediaMetadata
 from cjm_media_plugin_system.storage import MediaProcessingStorage
 
 from cjm_plugin_system.utils.hashing import hash_file
+from cjm_plugin_system.core.errors import (
+    PluginInputError, PluginResourceError, ResourceShortfall,
+)
 from cjm_plugin_system.utils.validation import (
     dict_to_config, config_to_dict, dataclass_to_jsonschema,
     SCHEMA_TITLE, SCHEMA_DESC, SCHEMA_ENUM,
@@ -229,7 +232,10 @@ class LavaSRProcessingPlugin(MediaProcessingPlugin):
         elif action == "enhance_speech":
             return self._enhance_speech(**kwargs)
         else:
-            raise ValueError(f"Unknown action: {action}. Supported: 'get_info', 'enhance_speech'")
+            raise PluginInputError(  # SG-47: typed input-validation
+                f"Unknown action: {action}. Supported: 'get_info', 'enhance_speech'",
+                fields_invalid=["action"],
+            )
     
     # ── Interface Methods (not applicable) ───────────────────────────
     
@@ -253,13 +259,21 @@ class LavaSRProcessingPlugin(MediaProcessingPlugin):
     
     def convert(self, input_path, output_format, **kwargs):
         """Not applicable for speech enhancement."""
-        raise ValueError("convert is not supported by the LavaSR plugin. "
-                         "Use 'enhance_speech' instead.")
+        raise PluginInputError(  # SG-47: typed input-validation; this method is
+            # not applicable for this plugin domain.
+            "convert is not supported by the LavaSR plugin. "
+            "Use 'enhance_speech' instead.",
+            fields_invalid=["action"],
+        )
     
     def extract_segment(self, input_path, start, end, output_path=None):
         """Not applicable for speech enhancement."""
-        raise ValueError("extract_segment is not supported by the LavaSR plugin. "
-                         "Use 'enhance_speech' instead.")
+        raise PluginInputError(  # SG-47: typed input-validation; this method is
+            # not applicable for this plugin domain.
+            "extract_segment is not supported by the LavaSR plugin. "
+            "Use 'enhance_speech' instead.",
+            fields_invalid=["action"],
+        )
     
     # ── Core Action ──────────────────────────────────────────────────
     
@@ -295,14 +309,27 @@ class LavaSRProcessingPlugin(MediaProcessingPlugin):
             cutoff=self.config.cutoff,
         )
         
-        # Enhance
+        # Enhance. SG-47 Track B wraps the inference site so CUDA OOM surfaces
+        # as PluginResourceError → CR-7 reactive-retry reloads.
         self.report_progress(0.2, "Enhancing speech...")
-        output_audio = self._model.enhance(
-            input_audio,
-            enhance=self.config.enhance,
-            denoise=use_denoise,
-            batch=self.config.batch_mode,
-        )
+        try:
+            output_audio = self._model.enhance(
+                input_audio,
+                enhance=self.config.enhance,
+                denoise=use_denoise,
+                batch=self.config.batch_mode,
+            )
+        except torch.cuda.OutOfMemoryError as e:
+            free_bytes = torch.cuda.mem_get_info()[0] if torch.cuda.is_available() else 0
+            available_mb = free_bytes / (1024 ** 2)
+            raise PluginResourceError(
+                f"CUDA OOM during LavaSR enhance: {e}",
+                resource_shortfall=ResourceShortfall(
+                    resource='gpu_vram_mb',
+                    needed=available_mb + 100.0,
+                    available=available_mb,
+                ),
+            ) from e
         
         # Save output (always 48kHz)
         self.report_progress(0.8, "Saving output...")
