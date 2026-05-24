@@ -21,6 +21,7 @@ from cjm_media_plugin_system.core import MediaMetadata
 from cjm_media_plugin_system.storage import MediaProcessingStorage
 
 from cjm_plugin_system.utils.hashing import hash_file
+from cjm_plugin_system.core.interface import RELOAD_TRIGGER
 from cjm_plugin_system.core.errors import (
     PluginInputError, PluginResourceError, ResourceShortfall,
 )
@@ -38,6 +39,7 @@ class LavaSRPluginConfig:
         default="YatharthS/LavaSR",
         metadata={
             SCHEMA_TITLE: "Model Path",
+            RELOAD_TRIGGER: "model",  # CR-4: change triggers model reload
             SCHEMA_DESC: "HuggingFace model ID or local path for LavaSR weights."
         }
     )
@@ -46,6 +48,7 @@ class LavaSRPluginConfig:
         default="auto",
         metadata={
             SCHEMA_TITLE: "Device",
+            RELOAD_TRIGGER: "model",  # CR-4: change triggers model reload
             SCHEMA_DESC: "Compute device. 'auto' selects CUDA if available.",
             SCHEMA_ENUM: ["auto", "cpu", "cuda"]
         }
@@ -153,7 +156,7 @@ class LavaSRProcessingPlugin(MediaProcessingPlugin):
     
     def cleanup(self) -> None:
         """Clean up plugin resources."""
-        self._unload_model()
+        self._release_model()
         self.logger.info("Plugin cleaned up")
     
     def is_available(self) -> bool:  # Whether the plugin can run
@@ -188,7 +191,7 @@ class LavaSRProcessingPlugin(MediaProcessingPlugin):
         self._model = LavaEnhance2(self.config.model_path, device=device)
         self.logger.info("LavaSR v2 model loaded")
     
-    def _unload_model(self) -> None:
+    def _release_model(self) -> None:
         """Unload the LavaSR model and free GPU memory."""
         if self._model is not None:
             del self._model
