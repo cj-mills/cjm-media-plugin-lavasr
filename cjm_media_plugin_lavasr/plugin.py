@@ -139,11 +139,22 @@ class LavaSRProcessingPlugin(MediaProcessingPlugin):
     
     # ── Lifecycle ────────────────────────────────────────────────────
     
+    def _apply_config(self,
+                      config: Optional[Any] = None,  # Configuration dict or None for defaults
+                     ) -> None:
+        """CR-4: apply config values only. Called by initialize (first-time) and the
+        substrate's reconfigure delta path. Model release on a model_path/device change
+        is handled declaratively via RELOAD_TRIGGER -> _release_model (device resolved
+        lazily in _load_model)."""
+        self.config = dict_to_config(LavaSRPluginConfig, config or {})
+
     def initialize(self,
                    config: Optional[Any] = None,  # Configuration dict or None for defaults
                   ) -> None:
-        """Initialize plugin with configuration."""
-        self.config = dict_to_config(LavaSRPluginConfig, config or {})
+        """First-time setup. CR-4: config application factored into _apply_config; the
+        substrate's reconfigure path fires _release_model on a model_path/device change
+        then re-applies config."""
+        self._apply_config(config)
         
         from .meta import get_plugin_metadata
         metadata = get_plugin_metadata()
@@ -154,6 +165,16 @@ class LavaSRProcessingPlugin(MediaProcessingPlugin):
         self.logger.info(f"Initialized with device={self.config.device}, "
                          f"denoise={self.config.denoise}, enhance={self.config.enhance}")
     
+    def prefetch(self) -> None:
+        """CR-4 (SG-19): eagerly load the model so the first execute() doesn't pay
+        the download/load cost. Idempotent via _load_model's None-guard."""
+        self._load_model()
+
+    def on_disable(self) -> None:
+        """CR-2: release the GPU model when the operator disables the plugin (the
+        worker stays alive); lazy reload on the next execute after re-enable."""
+        self._release_model()
+
     def cleanup(self) -> None:
         """Clean up plugin resources."""
         self._release_model()
