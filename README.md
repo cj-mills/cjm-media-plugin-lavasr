@@ -21,8 +21,8 @@ Total: 2 notebooks
 
 ``` mermaid
 graph LR
-    meta[meta<br/>Metadata]
-    plugin[plugin<br/>Plugin]
+    meta["meta<br/>Metadata"]
+    plugin["plugin<br/>Plugin"]
 ```
 
 No cross-module dependencies detected.
@@ -135,19 +135,39 @@ class LavaSRProcessingPlugin:
         
         # ── Lifecycle ────────────────────────────────────────────────────
         
-        def initialize(self,
-                       config: Optional[Any] = None,  # Configuration dict or None for defaults
-                      ) -> None
+        def _apply_config(self,
+                          config: Optional[Any] = None,  # Configuration dict or None for defaults
+                         ) -> None
         "Get supported media types."
     
     def initialize(self,
                        config: Optional[Any] = None,  # Configuration dict or None for defaults
                       ) -> None
-        "Initialize plugin with configuration."
+        "First-time setup. CR-4: config application factored into _apply_config; the
+substrate's reconfigure path fires _release_model on a model_path/device change
+then re-applies config."
+    
+    def prefetch(self) -> None:
+            """CR-4 (SG-19): eagerly load the model so the first execute() doesn't pay
+            the download/load cost. Idempotent via _load_model's None-guard."""
+            self._load_model()
+    
+        def on_disable(self) -> None
+        "CR-4 (SG-19): eagerly load the model so the first execute() doesn't pay
+the download/load cost. Idempotent via _load_model's None-guard."
+    
+    def on_disable(self) -> None:
+            """CR-2: release the GPU model when the operator disables the plugin (the
+            worker stays alive); lazy reload on the next execute after re-enable."""
+            self._release_model()
+    
+        def cleanup(self) -> None
+        "CR-2: release the GPU model when the operator disables the plugin (the
+worker stays alive); lazy reload on the next execute after re-enable."
     
     def cleanup(self) -> None:
             """Clean up plugin resources."""
-            self._unload_model()
+            self._release_model()
             self.logger.info("Plugin cleaned up")
         
         def is_available(self) -> bool:  # Whether the plugin can run
@@ -178,7 +198,7 @@ class LavaSRProcessingPlugin:
                     action: str = "enhance_speech",  # Action to perform
                     **kwargs
                    ) -> Dict[str, Any]:  # Action result
-        "Dispatch to the appropriate action handler."
+        "Dispatch to the `@plugin_action`-tagged handler for `action` (SG-44)."
     
     def get_info(self,
                      file_path: str,  # Path to audio file
@@ -187,8 +207,12 @@ class LavaSRProcessingPlugin:
     
     def convert(self, input_path, output_format, **kwargs):
             """Not applicable for speech enhancement."""
-            raise ValueError("convert is not supported by the LavaSR plugin. "
-                             "Use 'enhance_speech' instead.")
+            raise PluginInputError(  # SG-47: typed input-validation; this method is
+                # not applicable for this plugin domain.
+                "convert is not supported by the LavaSR plugin. "
+                "Use 'enhance_speech' instead.",
+                fields_invalid=["action"],
+            )
         
         def extract_segment(self, input_path, start, end, output_path=None)
         "Not applicable for speech enhancement."

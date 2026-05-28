@@ -21,7 +21,7 @@ from cjm_media_plugin_system.core import MediaMetadata
 from cjm_media_plugin_system.storage import MediaProcessingStorage
 
 from cjm_plugin_system.utils.hashing import hash_file
-from cjm_plugin_system.core.interface import RELOAD_TRIGGER
+from cjm_plugin_system.core.interface import RELOAD_TRIGGER, plugin_action, collect_plugin_actions
 from cjm_plugin_system.core.errors import (
     PluginInputError, PluginResourceError, ResourceShortfall,
 )
@@ -250,16 +250,24 @@ class LavaSRProcessingPlugin(MediaProcessingPlugin):
                 action: str = "enhance_speech",  # Action to perform
                 **kwargs
                ) -> Dict[str, Any]:  # Action result
-        """Dispatch to the appropriate action handler."""
-        if action == "get_info":
-            return self.get_info(kwargs["file_path"]).to_dict()
-        elif action == "enhance_speech":
-            return self._enhance_speech(**kwargs)
-        else:
-            raise PluginInputError(  # SG-47: typed input-validation
-                f"Unknown action: {action}. Supported: 'get_info', 'enhance_speech'",
-                fields_invalid=["action"],
-            )
+        """Dispatch to the `@plugin_action`-tagged handler for `action` (SG-44)."""
+        for klass in type(self).__mro__:
+            for attr in vars(klass).values():
+                if getattr(attr, "_plugin_action", None) == action:
+                    return attr(self, **kwargs)
+        raise PluginInputError(  # SG-47: typed input-validation
+            f"Unknown action: {action}", fields_invalid=["action"],
+        )
+
+    @plugin_action("get_info")
+    def _action_get_info(self, **kwargs) -> Dict[str, Any]:
+        """Action wrapper -> get_info()."""
+        return self.get_info(kwargs["file_path"]).to_dict()
+
+    @plugin_action("enhance_speech")
+    def _action_enhance_speech(self, **kwargs) -> Dict[str, Any]:
+        """Action wrapper -> _enhance_speech()."""
+        return self._enhance_speech(**kwargs)
     
     # ── Interface Methods (not applicable) ───────────────────────────
     
@@ -403,3 +411,7 @@ class LavaSRProcessingPlugin(MediaProcessingPlugin):
             "denoise_applied": use_denoise,
             "enhance_applied": self.config.enhance,
         }
+
+
+LavaSRProcessingPlugin.supported_actions = collect_plugin_actions(LavaSRProcessingPlugin)
+
