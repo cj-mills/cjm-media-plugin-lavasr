@@ -21,7 +21,6 @@ def get_plugin_metadata() -> Dict[str, Any]:  # Plugin metadata for manifest gen
     
     # Use CJM config if available, else fallback to env-relative paths
     cjm_data_dir = os.environ.get("CJM_DATA_DIR")
-    cjm_models_dir = os.environ.get("CJM_MODELS_DIR")
     
     # Plugin data directory
     plugin_name = "cjm-media-plugin-lavasr"
@@ -35,15 +34,11 @@ def get_plugin_metadata() -> Dict[str, Any]:  # Plugin metadata for manifest gen
     # Ensure data directory exists
     os.makedirs(data_dir, exist_ok=True)
     
-    # HuggingFace cache: LavaSR uses huggingface_hub.snapshot_download()
-    if cjm_models_dir:
-        hf_home = os.path.join(cjm_models_dir, "huggingface")
-    else:
-        hf_home = os.path.join(base_path, ".cache", "huggingface")
-    
     return {
         "name": plugin_name,
         "version": __version__,
+        # T24: non-empty description required by the substrate validator (SG-6 / V1 gate).
+        "description": "LavaSR v2 speech enhancement — bandwidth extension + optional denoising to improve speech audio quality before transcription.",
         "type": "media-processing",
         "category": "media",
         "interface": "cjm_media_plugin_system.processing_interface.MediaProcessingPlugin",
@@ -56,14 +51,16 @@ def get_plugin_metadata() -> Dict[str, Any]:  # Plugin metadata for manifest gen
         
         "db_path": db_path,
         
+        # Phase 5a / CR-7 reframe: binary hard-facts only (quantitative amounts dropped,
+        # V12 gate). requires_gpu is False — LavaSR has a real CPU path (device='auto'
+        # falls back to CPU when CUDA is absent); it is GPU-optional, not GPU-required.
+        # This also resolves the pre-overhaul contradiction (requires_gpu:False +
+        # min_gpu_vram_mb:512).
         "resources": {
-            "requires_gpu": False,
-            "min_gpu_vram_mb": 512,
-            "recommended_gpu_vram_mb": 1024,
-            "min_system_ram_mb": 2048
+            "requires_gpu": False
         },
         
-        "env_vars": {
-            "HF_HOME": hf_home
-        }
+        # Track 19: CUDA_VISIBLE_DEVICES (static) + HF_HOME (templated) are declared on the
+        # plugin class via WORKER_ENV; the substrate resolves + injects them at spawn.
+        "env_vars": {}
     }

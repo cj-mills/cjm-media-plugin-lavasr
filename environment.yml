@@ -18,6 +18,11 @@ dependencies:
     - cjm-plugin-system
     - cjm-media-plugin-system
 
+    # Shared plugin utils (torch release / CUDA-OOM typing / device resolve;
+    # HF Hub cache mixin + snapshot download with progress)
+    - cjm-torch-plugin-utils
+    - cjm-hf-plugin-utils
+
     # LavaSR (from upstream GitHub)
     - LavaSR @ git+https://github.com/ysharma3501/LavaSR.git
 

@@ -1,17 +1,40 @@
 plugins:
   # ----------------------------------------------------------------
-  # Media Processing: LavaSR (this library)
+  # Infrastructure Worker: NVIDIA Monitor
+  # Provides GPU telemetry so the empirical store can record
+  # gpu_memory_mb_peak for the lavasr subtree (real GPU attribution
+  # when LavaSR runs on CUDA via device=auto).
+  # ----------------------------------------------------------------
+  - name: sys-mon-nvidia
+    env_name: test-sys-mon
+    env_file: "https://raw.githubusercontent.com/cj-mills/cjm-system-monitor-nvidia/main/environment.yml"
+    package: "git+https://github.com/cj-mills/cjm-system-monitor-nvidia.git"
+    interface_libs:
+      - "/mnt/SN850X_8TB_EXT4/Projects/GitHub/cj-mills/cjm-plugin-system/"
+      - "git+https://github.com/cj-mills/cjm-infra-plugin-system.git"
+
+  # ----------------------------------------------------------------
+  # Media Processing: ffmpeg (upstream segment -> wav prep for the sequence;
+  # tests whether feeding LavaSR a clean PCM wav improves enhancement)
+  # ----------------------------------------------------------------
+  - name: ffmpeg
+    env_name: test-ffmpeg
+    env_file: "https://raw.githubusercontent.com/cj-mills/cjm-media-plugin-ffmpeg/main/environment.yml"
+    package: "git+https://github.com/cj-mills/cjm-media-plugin-ffmpeg.git"
+    interface_libs:
+      - "/mnt/SN850X_8TB_EXT4/Projects/GitHub/cj-mills/cjm-plugin-system/"
+      - "git+https://github.com/cj-mills/cjm-media-plugin-system.git"
+
+  # ----------------------------------------------------------------
+  # Media Processing: LavaSR (this library, local source)
+  # Pulls cjm-torch-plugin-utils + cjm-hf-plugin-utils from PyPI via its deps.
+  # Substrate pinned to local source so the Track 19 WORKER_ENV + heartbeat +
+  # cache_dir_for_config are tested against the current substrate.
   # ----------------------------------------------------------------
   - name: lavasr
     env_name: test-lavasr
-    
-    # Environment File
     env_file: "./environment.yml"
-    
-    # The Plugin Package
     package: "/mnt/SN850X_8TB_EXT4/Projects/GitHub/cj-mills/cjm-media-plugin-lavasr/"
-    
-    # Interface Libraries
     interface_libs:
-      - "git+https://github.com/cj-mills/cjm-plugin-system.git"
+      - "/mnt/SN850X_8TB_EXT4/Projects/GitHub/cj-mills/cjm-plugin-system/"
       - "git+https://github.com/cj-mills/cjm-media-plugin-system.git"
