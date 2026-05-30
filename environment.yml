@@ -23,7 +23,9 @@ dependencies:
     - cjm-torch-plugin-utils
     - cjm-hf-plugin-utils
 
-    # LavaSR (from upstream GitHub)
+    # LavaSR (from upstream GitHub) — SOLE source of this dep. It is intentionally NOT in
+    # pyproject.toml dependencies: PyPI rejects direct-URL deps, and the plugin only ever
+    # runs in this conda env. The plugin's is_available() returns False if it's missing.
     - LavaSR @ git+https://github.com/ysharma3501/LavaSR.git
 
     # Utilities
