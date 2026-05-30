@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, ClassVar
 
 import torch
+from fastcore.basics import patch
 
 from cjm_media_plugin_system.processing_interface import MediaProcessingPlugin
 from cjm_media_plugin_system.core import MediaMetadata
@@ -172,14 +173,6 @@ class LavaSRProcessingPlugin(MediaProcessingPlugin):
     
     # ── Lifecycle ────────────────────────────────────────────────────
     
-    def _apply_config(self,
-                      config: Optional[Any] = None,  # Configuration dict or None for defaults
-                     ) -> None:
-        """CR-4: apply config values only. Called by initialize (first-time) and the
-        substrate's reconfigure delta path. Model release on a model_path/device change
-        is handled declaratively via RELOAD_TRIGGER -> _release_model (device resolved
-        lazily in _load_model)."""
-        self.config = dict_to_config(LavaSRPluginConfig, config or {})
 
     def initialize(self,
                    config: Optional[Any] = None,  # Configuration dict or None for defaults
@@ -198,28 +191,9 @@ class LavaSRProcessingPlugin(MediaProcessingPlugin):
         self.logger.info(f"Initialized with device={self.config.device}, "
                          f"denoise={self.config.denoise}, enhance={self.config.enhance}")
     
-    def prefetch(self) -> None:
-        """CR-4 (SG-19): eagerly load the model so the first execute() doesn't pay
-        the download/load cost. Idempotent via _load_model's None-guard."""
-        self._load_model()
 
-    def on_disable(self) -> None:
-        """CR-2: release the GPU model when the operator disables the plugin (the
-        worker stays alive); lazy reload on the next execute after re-enable."""
-        self._release_model()
 
-    def cleanup(self) -> None:
-        """Clean up plugin resources."""
-        self._release_model()
-        self.logger.info("Plugin cleaned up")
     
-    def is_available(self) -> bool:  # Whether the plugin can run
-        """Check if the plugin is available on this system."""
-        try:
-            import LavaSR  # noqa
-            return True
-        except ImportError:
-            return False
     
     def get_config_schema(self) -> Dict[str, Any]:  # JSON Schema for UI forms
         """Return JSON Schema for the plugin configuration."""
@@ -231,68 +205,10 @@ class LavaSRProcessingPlugin(MediaProcessingPlugin):
     
     # ── Model Management ────────────────────────────────────────────
     
-    def _load_model(self) -> None:
-        """Load the LavaSR v2 model (lazy, cached).
-
-        CR-4: a model_path/device change releases the model declaratively via
-        RELOAD_TRIGGER -> _release_model, so a None model means a (re)load is required.
-
-        The heartbeat wraps the WHOLE load. LavaEnhance2's constructor downloads weights
-        from HF Hub on a cold cache and that download is silent to the substrate's stall
-        detector; worse, the constructor only triggers it for the "YatharthS/LavaSR"
-        sentinel via an un-monitored snapshot_download. So we pre-resolve the snapshot via
-        snapshot_download_with_progress (monitored) and hand the LOCAL path to
-        LavaEnhance2 — bypassing its internal download. An operator-supplied local path
-        (not the sentinel) passes straight through."""
-        if self._model is not None:
-            return
-        
-        device = resolve_torch_device(self.config.device)
-        self.logger.info(f"Loading LavaSR v2 model from '{self.config.model_path}' on {device}...")
-        from LavaSR.model import LavaEnhance2
-        with self.heartbeat("loading LavaSR model"):
-            model_path = self.config.model_path
-            if model_path == "YatharthS/LavaSR":
-                # Sentinel-bypass: monitored snapshot download, then hand LavaEnhance2 the
-                # local dir so its constructor skips the un-monitored snapshot_download.
-                model_path = str(snapshot_download_with_progress(
-                    model_path,
-                    report_progress=self.report_progress,
-                    cache_dir=self.config.cache_dir,
-                    revision=self.config.revision,
-                    local_files_only=self.config.local_files_only,
-                ))
-            self._model = LavaEnhance2(model_path, device=device)
-        self.logger.info("LavaSR v2 model loaded")
     
-    def _release_model(self) -> None:
-        """CR-4: release the LavaSR model + free CUDA cache (cjm-torch-plugin-utils).
-        RELOAD_TRIGGER target for model_path/device; on_disable / cleanup delegate here.
-        Idempotent via release_model (no-op when already released)."""
-        release_model(self, ["_model"], device="cuda", logger=self.logger)
     
     # ── Job Storage ──────────────────────────────────────────────────
     
-    def _store_job(self,
-                   action: str,  # Action name
-                   input_path: str,  # Source file path
-                   output_path: str,  # Output file path
-                   parameters: Optional[Dict[str, Any]] = None,  # Action parameters
-                   metadata: Optional[Dict[str, Any]] = None,  # Additional metadata
-                   input_hash: Optional[str] = None,  # Pre-computed input hash
-                  ) -> str:  # Generated job_id
-        """Hash input/output files and store a processing job record."""
-        job_id = str(uuid.uuid4())
-        if input_hash is None:
-            input_hash = hash_file(input_path)
-        output_hash = hash_file(output_path)
-        self.storage.save(
-            job_id=job_id, action=action,
-            input_path=input_path, input_hash=input_hash,
-            output_path=output_path, output_hash=output_hash,
-            parameters=parameters, metadata=metadata
-        )
-        return job_id
     
     # ── Action Dispatch ──────────────────────────────────────────────
     
@@ -309,15 +225,7 @@ class LavaSRProcessingPlugin(MediaProcessingPlugin):
             f"Unknown action: {action}", fields_invalid=["action"],
         )
 
-    @plugin_action("get_info")
-    def _action_get_info(self, **kwargs) -> Dict[str, Any]:
-        """Action wrapper -> get_info()."""
-        return self.get_info(kwargs["file_path"]).to_dict()
 
-    @plugin_action("enhance_speech")
-    def _action_enhance_speech(self, **kwargs) -> Dict[str, Any]:
-        """Action wrapper -> _enhance_speech()."""
-        return self._enhance_speech(**kwargs)
     
     # ── Interface Methods (not applicable) ───────────────────────────
     
@@ -358,106 +266,231 @@ class LavaSRProcessingPlugin(MediaProcessingPlugin):
         )
     
     # ── Core Action ──────────────────────────────────────────────────
-    
-    def _enhance_speech(self,
-                        input_path: str,  # Path to audio segment file
-                        output_dir: Optional[str] = None,  # Output directory (default: content+config cache dir)
-                        output_format: Optional[str] = None,  # Output format override
-                        denoise: Optional[bool] = None,  # Override config's denoise setting
-                       ) -> Dict[str, Any]:  # Enhancement result
-        """Enhance speech quality via bandwidth extension and optional denoising."""
-        import soundfile as sf
-        
-        fmt = output_format or self.config.output_format
-        use_denoise = denoise if denoise is not None else self.config.denoise
-        input_p = Path(input_path)
-        
-        # Determine output directory. Q3 Layer B: a content+config-addressed cache dir
-        # (<data_dir>/enhance_speech/<stem>/<input6>_<config12>/) so a re-run with a
-        # different denoise/format/model lands in a DISTINCT dir instead of overwriting —
-        # and a chained upstream change (e.g. a different ffmpeg conversion feeding this)
-        # invalidates this key automatically.
-        if output_dir is None:
-            out_dir = cache_dir_for_config(
-                self._data_dir, input_path, "enhance_speech", config_to_dict(self.config),
-            )
-        else:
-            out_dir = Path(output_dir)
-            out_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Load model (lazy, cached)
-        self.report_progress(0.0, "Loading model...")
-        self._load_model()
-        
-        # Load audio via LavaSR (resamples to input_sr → 16kHz, sets cutoff)
-        self.report_progress(0.1, "Loading audio...")
-        input_audio, input_sr = self._model.load_audio(
-            str(input_p),
-            input_sr=self.config.input_sr,
-            cutoff=self.config.cutoff,
+
+# %% ../nbs/plugin.ipynb #m-apply-config
+@patch
+def _apply_config(self:LavaSRProcessingPlugin,
+                  config: Optional[Any] = None,  # Configuration dict or None for defaults
+                 ) -> None:
+    """CR-4: apply config values only. Called by initialize (first-time) and the
+    substrate's reconfigure delta path. Model release on a model_path/device change
+    is handled declaratively via RELOAD_TRIGGER -> _release_model (device resolved
+    lazily in _load_model)."""
+    self.config = dict_to_config(LavaSRPluginConfig, config or {})
+
+# %% ../nbs/plugin.ipynb #m-prefetch
+@patch
+def prefetch(self:LavaSRProcessingPlugin) -> None:
+    """CR-4 (SG-19): eagerly load the model so the first execute() doesn't pay
+    the download/load cost. Idempotent via _load_model's None-guard."""
+    self._load_model()
+
+# %% ../nbs/plugin.ipynb #m-on-disable
+@patch
+def on_disable(self:LavaSRProcessingPlugin) -> None:
+    """CR-2: release the GPU model when the operator disables the plugin (the
+    worker stays alive); lazy reload on the next execute after re-enable."""
+    self._release_model()
+
+# %% ../nbs/plugin.ipynb #m-cleanup
+@patch
+def cleanup(self:LavaSRProcessingPlugin) -> None:
+    """Clean up plugin resources."""
+    self._release_model()
+    self.logger.info("Plugin cleaned up")
+
+# %% ../nbs/plugin.ipynb #m-is-available
+@patch
+def is_available(self:LavaSRProcessingPlugin) -> bool:  # Whether the plugin can run
+    """Check if the plugin is available on this system."""
+    try:
+        import LavaSR  # noqa
+        return True
+    except ImportError:
+        return False
+
+# %% ../nbs/plugin.ipynb #m-load-model
+@patch
+def _load_model(self:LavaSRProcessingPlugin) -> None:
+    """Load the LavaSR v2 model (lazy, cached).
+
+    CR-4: a model_path/device change releases the model declaratively via
+    RELOAD_TRIGGER -> _release_model, so a None model means a (re)load is required.
+
+    The heartbeat wraps the WHOLE load. LavaEnhance2's constructor downloads weights
+    from HF Hub on a cold cache and that download is silent to the substrate's stall
+    detector; worse, the constructor only triggers it for the "YatharthS/LavaSR"
+    sentinel via an un-monitored snapshot_download. So we pre-resolve the snapshot via
+    snapshot_download_with_progress (monitored) and hand the LOCAL path to
+    LavaEnhance2 — bypassing its internal download. An operator-supplied local path
+    (not the sentinel) passes straight through."""
+    if self._model is not None:
+        return
+
+    device = resolve_torch_device(self.config.device)
+    self.logger.info(f"Loading LavaSR v2 model from '{self.config.model_path}' on {device}...")
+    from LavaSR.model import LavaEnhance2
+    with self.heartbeat("loading LavaSR model"):
+        model_path = self.config.model_path
+        if model_path == "YatharthS/LavaSR":
+            # Sentinel-bypass: monitored snapshot download, then hand LavaEnhance2 the
+            # local dir so its constructor skips the un-monitored snapshot_download.
+            model_path = str(snapshot_download_with_progress(
+                model_path,
+                report_progress=self.report_progress,
+                cache_dir=self.config.cache_dir,
+                revision=self.config.revision,
+                local_files_only=self.config.local_files_only,
+            ))
+        self._model = LavaEnhance2(model_path, device=device)
+    self.logger.info("LavaSR v2 model loaded")
+
+# %% ../nbs/plugin.ipynb #m-release-model
+@patch
+def _release_model(self:LavaSRProcessingPlugin) -> None:
+    """CR-4: release the LavaSR model + free CUDA cache (cjm-torch-plugin-utils).
+    RELOAD_TRIGGER target for model_path/device; on_disable / cleanup delegate here.
+    Idempotent via release_model (no-op when already released)."""
+    release_model(self, ["_model"], device="cuda", logger=self.logger)
+
+# %% ../nbs/plugin.ipynb #m-store-job
+@patch
+def _store_job(self:LavaSRProcessingPlugin,
+               action: str,  # Action name
+               input_path: str,  # Source file path
+               output_path: str,  # Output file path
+               parameters: Optional[Dict[str, Any]] = None,  # Action parameters
+               metadata: Optional[Dict[str, Any]] = None,  # Additional metadata
+               input_hash: Optional[str] = None,  # Pre-computed input hash
+              ) -> str:  # Generated job_id
+    """Hash input/output files and store a processing job record."""
+    job_id = str(uuid.uuid4())
+    if input_hash is None:
+        input_hash = hash_file(input_path)
+    output_hash = hash_file(output_path)
+    self.storage.save(
+        job_id=job_id, action=action,
+        input_path=input_path, input_hash=input_hash,
+        output_path=output_path, output_hash=output_hash,
+        parameters=parameters, metadata=metadata
+    )
+    return job_id
+
+# %% ../nbs/plugin.ipynb #m-action-get-info
+@patch
+@plugin_action("get_info")
+def _action_get_info(self:LavaSRProcessingPlugin, **kwargs) -> Dict[str, Any]:
+    """Action wrapper -> get_info()."""
+    return self.get_info(kwargs["file_path"]).to_dict()
+
+# %% ../nbs/plugin.ipynb #m-action-enhance-speech
+@patch
+@plugin_action("enhance_speech")
+def _action_enhance_speech(self:LavaSRProcessingPlugin, **kwargs) -> Dict[str, Any]:
+    """Action wrapper -> _enhance_speech()."""
+    return self._enhance_speech(**kwargs)
+
+# %% ../nbs/plugin.ipynb #m-enhance-speech
+@patch
+def _enhance_speech(self:LavaSRProcessingPlugin,
+                    input_path: str,  # Path to audio segment file
+                    output_dir: Optional[str] = None,  # Output directory (default: content+config cache dir)
+                    output_format: Optional[str] = None,  # Output format override
+                    denoise: Optional[bool] = None,  # Override config's denoise setting
+                   ) -> Dict[str, Any]:  # Enhancement result
+    """Enhance speech quality via bandwidth extension and optional denoising."""
+    import soundfile as sf
+
+    fmt = output_format or self.config.output_format
+    use_denoise = denoise if denoise is not None else self.config.denoise
+    input_p = Path(input_path)
+
+    # Determine output directory. Q3 Layer B: a content+config-addressed cache dir
+    # (<data_dir>/enhance_speech/<stem>/<input6>_<config12>/) so a re-run with a
+    # different denoise/format/model lands in a DISTINCT dir instead of overwriting —
+    # and a chained upstream change (e.g. a different ffmpeg conversion feeding this)
+    # invalidates this key automatically.
+    if output_dir is None:
+        out_dir = cache_dir_for_config(
+            self._data_dir, input_path, "enhance_speech", config_to_dict(self.config),
         )
-        
-        # Enhance. SG-47 Track B wraps the inference site so CUDA OOM surfaces as
-        # PluginResourceError (via cjm-torch-plugin-utils) → CR-7 reactive-retry reloads.
-        self.report_progress(0.2, "Enhancing speech...")
-        try:
-            output_audio = self._model.enhance(
-                input_audio,
-                enhance=self.config.enhance,
-                denoise=use_denoise,
-                batch=self.config.batch_mode,
-            )
-        except torch.cuda.OutOfMemoryError as e:
-            raise cuda_oom_to_plugin_resource_error(
-                e, label="during LavaSR enhance",
-            ) from e
-        
-        # Save output (always 48kHz)
-        self.report_progress(0.8, "Saving output...")
-        output_path = out_dir / f"enhanced.{fmt}"
-        output_np = output_audio.cpu().numpy().squeeze()
-        sf.write(str(output_path), output_np, self.OUTPUT_SAMPLE_RATE)
-        
-        # Get duration from output
-        duration = len(output_np) / self.OUTPUT_SAMPLE_RATE
-        
-        # Resolve device for metadata
-        device = resolve_torch_device(self.config.device)
-        
-        # Hash and store job
-        self.report_progress(0.9, "Storing job record...")
-        job_id = self._store_job(
-            action="enhance_speech",
-            input_path=str(input_p),
-            output_path=str(output_path),
-            parameters={
-                "denoise": use_denoise,
-                "enhance": self.config.enhance,
-                "batch_mode": self.config.batch_mode,
-                "input_sr": self.config.input_sr,
-                "cutoff": self.config.cutoff,
-                "output_format": fmt,
-            },
-            metadata={
-                "input_sr": self.config.input_sr,
-                "output_sr": self.OUTPUT_SAMPLE_RATE,
-                "duration": duration,
-                "device": device,
-            },
+    else:
+        out_dir = Path(output_dir)
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+    # Load model (lazy, cached)
+    self.report_progress(0.0, "Loading model...")
+    self._load_model()
+
+    # Load audio via LavaSR (resamples to input_sr → 16kHz, sets cutoff)
+    self.report_progress(0.1, "Loading audio...")
+    input_audio, input_sr = self._model.load_audio(
+        str(input_p),
+        input_sr=self.config.input_sr,
+        cutoff=self.config.cutoff,
+    )
+
+    # Enhance. SG-47 Track B wraps the inference site so CUDA OOM surfaces as
+    # PluginResourceError (via cjm-torch-plugin-utils) → CR-7 reactive-retry reloads.
+    self.report_progress(0.2, "Enhancing speech...")
+    try:
+        output_audio = self._model.enhance(
+            input_audio,
+            enhance=self.config.enhance,
+            denoise=use_denoise,
+            batch=self.config.batch_mode,
         )
-        
-        self.report_progress(1.0, "Complete")
-        
-        return {
-            "job_id": job_id,
-            "output_path": str(output_path),
-            "input_path": str(input_p),
-            "input_sample_rate": self.config.input_sr,
-            "output_sample_rate": self.OUTPUT_SAMPLE_RATE,
+    except torch.cuda.OutOfMemoryError as e:
+        raise cuda_oom_to_plugin_resource_error(
+            e, label="during LavaSR enhance",
+        ) from e
+
+    # Save output (always 48kHz)
+    self.report_progress(0.8, "Saving output...")
+    output_path = out_dir / f"enhanced.{fmt}"
+    output_np = output_audio.cpu().numpy().squeeze()
+    sf.write(str(output_path), output_np, self.OUTPUT_SAMPLE_RATE)
+
+    # Get duration from output
+    duration = len(output_np) / self.OUTPUT_SAMPLE_RATE
+
+    # Resolve device for metadata
+    device = resolve_torch_device(self.config.device)
+
+    # Hash and store job
+    self.report_progress(0.9, "Storing job record...")
+    job_id = self._store_job(
+        action="enhance_speech",
+        input_path=str(input_p),
+        output_path=str(output_path),
+        parameters={
+            "denoise": use_denoise,
+            "enhance": self.config.enhance,
+            "batch_mode": self.config.batch_mode,
+            "input_sr": self.config.input_sr,
+            "cutoff": self.config.cutoff,
+            "output_format": fmt,
+        },
+        metadata={
+            "input_sr": self.config.input_sr,
+            "output_sr": self.OUTPUT_SAMPLE_RATE,
             "duration": duration,
-            "denoise_applied": use_denoise,
-            "enhance_applied": self.config.enhance,
-        }
+            "device": device,
+        },
+    )
 
+    self.report_progress(1.0, "Complete")
 
+    return {
+        "job_id": job_id,
+        "output_path": str(output_path),
+        "input_path": str(input_p),
+        "input_sample_rate": self.config.input_sr,
+        "output_sample_rate": self.OUTPUT_SAMPLE_RATE,
+        "duration": duration,
+        "denoise_applied": use_denoise,
+        "enhance_applied": self.config.enhance,
+    }
+
+# %% ../nbs/plugin.ipynb #8aac5926-tail
 LavaSRProcessingPlugin.supported_actions = collect_plugin_actions(LavaSRProcessingPlugin)
