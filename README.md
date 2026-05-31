@@ -58,7 +58,6 @@ def get_plugin_metadata() -> Dict[str, Any]:  # Plugin metadata for manifest gen
     
     # Use CJM config if available, else fallback to env-relative paths
     cjm_data_dir = os.environ.get("CJM_DATA_DIR")
-    cjm_models_dir = os.environ.get("CJM_MODELS_DIR")
     
     # Plugin data directory
     plugin_name = "cjm-media-plugin-lavasr"
@@ -81,12 +80,134 @@ from cjm_media_plugin_lavasr.plugin import (
 )
 ```
 
+#### Functions
+
+``` python
+@patch
+def _apply_config(self:LavaSRProcessingPlugin,
+                  config: Optional[Any] = None,  # Configuration dict or None for defaults
+                 ) -> None
+    """
+    CR-4: apply config values only. Called by initialize (first-time) and the
+    substrate's reconfigure delta path. Model release on a model_path/device change
+    is handled declaratively via RELOAD_TRIGGER -> _release_model (device resolved
+    lazily in _load_model).
+    """
+```
+
+``` python
+@patch
+def prefetch(self:LavaSRProcessingPlugin) -> None
+    """
+    CR-4 (SG-19): eagerly load the model so the first execute() doesn't pay
+    the download/load cost. Idempotent via _load_model's None-guard.
+    """
+```
+
+``` python
+@patch
+def on_disable(self:LavaSRProcessingPlugin) -> None
+    """
+    CR-2: release the GPU model when the operator disables the plugin (the
+    worker stays alive); lazy reload on the next execute after re-enable.
+    """
+```
+
+``` python
+@patch
+def cleanup(self:LavaSRProcessingPlugin) -> None
+    "Clean up plugin resources."
+```
+
+``` python
+@patch
+def is_available(self:LavaSRProcessingPlugin) -> bool:  # Whether the plugin can run
+    """Check if the plugin is available on this system."""
+    try
+    "Check if the plugin is available on this system."
+```
+
+``` python
+@patch
+def _load_model(self:LavaSRProcessingPlugin) -> None:
+    """Load the LavaSR v2 model (lazy, cached).
+
+    CR-4: a model_path/device change releases the model declaratively via
+    RELOAD_TRIGGER -> _release_model, so a None model means a (re)load is required.
+
+    The heartbeat wraps the WHOLE load. LavaEnhance2's constructor downloads weights
+    from HF Hub on a cold cache and that download is silent to the substrate's stall
+    detector; worse, the constructor only triggers it for the "YatharthS/LavaSR"
+    sentinel via an un-monitored snapshot_download. So we pre-resolve the snapshot via
+    snapshot_download_with_progress (monitored) and hand the LOCAL path to
+    LavaEnhance2 — bypassing its internal download. An operator-supplied local path
+    (not the sentinel) passes straight through."""
+    if self._model is not None
+    """
+    Load the LavaSR v2 model (lazy, cached).
+    
+    CR-4: a model_path/device change releases the model declaratively via
+    RELOAD_TRIGGER -> _release_model, so a None model means a (re)load is required.
+    
+    The heartbeat wraps the WHOLE load. LavaEnhance2's constructor downloads weights
+    from HF Hub on a cold cache and that download is silent to the substrate's stall
+    detector; worse, the constructor only triggers it for the "YatharthS/LavaSR"
+    sentinel via an un-monitored snapshot_download. So we pre-resolve the snapshot via
+    snapshot_download_with_progress (monitored) and hand the LOCAL path to
+    LavaEnhance2 — bypassing its internal download. An operator-supplied local path
+    (not the sentinel) passes straight through.
+    """
+```
+
+``` python
+@patch
+def _release_model(self:LavaSRProcessingPlugin) -> None
+    """
+    CR-4: release the LavaSR model + free CUDA cache (cjm-torch-plugin-utils).
+    RELOAD_TRIGGER target for model_path/device; on_disable / cleanup delegate here.
+    Idempotent via release_model (no-op when already released).
+    """
+```
+
+``` python
+@patch
+def _store_job(self:LavaSRProcessingPlugin,
+    """
+    Hash input/output files and store a processing job record (upsert by
+    action + input_path + config_hash; logs + swallows save failures).
+    """
+```
+
+``` python
+@patch
+def _action_get_info(self:LavaSRProcessingPlugin, **kwargs) -> Dict[str, Any]
+    "Action wrapper -> get_info()."
+```
+
+``` python
+@patch
+def _action_enhance_speech(self:LavaSRProcessingPlugin, **kwargs) -> Dict[str, Any]
+    "Action wrapper -> _enhance_speech()."
+```
+
+``` python
+@patch
+def _enhance_speech(self:LavaSRProcessingPlugin,
+    "Enhance speech quality via bandwidth extension and optional denoising."
+```
+
 #### Classes
 
 ``` python
 @dataclass
-class LavaSRPluginConfig:
-    "Configuration for the LavaSR speech enhancement plugin."
+class LavaSRPluginConfig(HFCacheConfig):
+    """
+    Configuration for the LavaSR speech enhancement plugin.
+    
+    Composes HFCacheConfig (cache_dir / revision / local_files_only / trust_remote_code,
+    each RELOAD_TRIGGER-tagged) so the HF Hub snapshot download used to resolve the
+    LavaSR weights is operator-controllable.
+    """
     
     model_path: str = field(...)
     device: str = field(...)
@@ -135,9 +256,10 @@ class LavaSRProcessingPlugin:
         
         # ── Lifecycle ────────────────────────────────────────────────────
         
-        def _apply_config(self,
-                          config: Optional[Any] = None,  # Configuration dict or None for defaults
-                         ) -> None
+    
+        def initialize(self,
+                       config: Optional[Any] = None,  # Configuration dict or None for defaults
+                      ) -> None
         "Get supported media types."
     
     def initialize(self,
@@ -146,37 +268,6 @@ class LavaSRProcessingPlugin:
         "First-time setup. CR-4: config application factored into _apply_config; the
 substrate's reconfigure path fires _release_model on a model_path/device change
 then re-applies config."
-    
-    def prefetch(self) -> None:
-            """CR-4 (SG-19): eagerly load the model so the first execute() doesn't pay
-            the download/load cost. Idempotent via _load_model's None-guard."""
-            self._load_model()
-    
-        def on_disable(self) -> None
-        "CR-4 (SG-19): eagerly load the model so the first execute() doesn't pay
-the download/load cost. Idempotent via _load_model's None-guard."
-    
-    def on_disable(self) -> None:
-            """CR-2: release the GPU model when the operator disables the plugin (the
-            worker stays alive); lazy reload on the next execute after re-enable."""
-            self._release_model()
-    
-        def cleanup(self) -> None
-        "CR-2: release the GPU model when the operator disables the plugin (the
-worker stays alive); lazy reload on the next execute after re-enable."
-    
-    def cleanup(self) -> None:
-            """Clean up plugin resources."""
-            self._release_model()
-            self.logger.info("Plugin cleaned up")
-        
-        def is_available(self) -> bool:  # Whether the plugin can run
-        "Clean up plugin resources."
-    
-    def is_available(self) -> bool:  # Whether the plugin can run
-            """Check if the plugin is available on this system."""
-            try
-        "Check if the plugin is available on this system."
     
     def get_config_schema(self) -> Dict[str, Any]:  # JSON Schema for UI forms
             """Return JSON Schema for the plugin configuration."""
@@ -191,7 +282,17 @@ worker stays alive); lazy reload on the next execute after re-enable."
         
         # ── Model Management ────────────────────────────────────────────
         
-        def _load_model(self) -> None
+        
+        
+        # ── Job Storage ──────────────────────────────────────────────────
+        
+        
+        # ── Action Dispatch ──────────────────────────────────────────────
+        
+        def execute(self,
+                    action: str = "enhance_speech",  # Action to perform
+                    **kwargs
+                   ) -> Dict[str, Any]:  # Action result
         "Return the current configuration."
     
     def execute(self,
@@ -204,19 +305,4 @@ worker stays alive); lazy reload on the next execute after re-enable."
                      file_path: str,  # Path to audio file
                     ) -> MediaMetadata:  # File metadata
         "Get basic audio file metadata via soundfile."
-    
-    def convert(self, input_path, output_format, **kwargs):
-            """Not applicable for speech enhancement."""
-            raise PluginInputError(  # SG-47: typed input-validation; this method is
-                # not applicable for this plugin domain.
-                "convert is not supported by the LavaSR plugin. "
-                "Use 'enhance_speech' instead.",
-                fields_invalid=["action"],
-            )
-        
-        def extract_segment(self, input_path, start, end, output_path=None)
-        "Not applicable for speech enhancement."
-    
-    def extract_segment(self, input_path, start, end, output_path=None)
-        "Not applicable for speech enhancement."
 ```
