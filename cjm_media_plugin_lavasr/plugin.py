@@ -22,6 +22,7 @@ from cjm_media_plugin_system.core import MediaMetadata
 from cjm_media_plugin_system.storage import MediaProcessingStorage
 
 from cjm_plugin_system.utils.hashing import hash_file, hash_dict_canonical
+from .meta import get_plugin_metadata
 from cjm_plugin_system.utils.cache_paths import cache_dir_for_config
 from cjm_plugin_system.core.interface import RELOAD_TRIGGER, plugin_action, collect_plugin_actions, EnvVarSpec
 from cjm_plugin_system.core.errors import PluginInputError
@@ -158,7 +159,7 @@ class LavaSRProcessingPlugin(MediaProcessingPlugin):
     @property
     def name(self) -> str:  # Plugin name identifier
         """Get the plugin name."""
-        return "cjm-media-plugin-lavasr"
+        return get_plugin_metadata()["name"]
     
     @property
     def version(self) -> str:  # Plugin version string
@@ -217,13 +218,7 @@ class LavaSRProcessingPlugin(MediaProcessingPlugin):
                 **kwargs
                ) -> Dict[str, Any]:  # Action result
         """Dispatch to the `@plugin_action`-tagged handler for `action` (SG-44)."""
-        for klass in type(self).__mro__:
-            for attr in vars(klass).values():
-                if getattr(attr, "_plugin_action", None) == action:
-                    return attr(self, **kwargs)
-        raise PluginInputError(  # SG-47: typed input-validation
-            f"Unknown action: {action}", fields_invalid=["action"],
-        )
+        return self.dispatch_to_action(action, **kwargs)
 
 
     
