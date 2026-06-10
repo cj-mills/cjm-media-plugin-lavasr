@@ -105,7 +105,8 @@ def run_e2e() -> None:
 
     from cjm_plugin_system.core.manager import PluginManager
     from cjm_plugin_system.core.config import get_config
-    from cjm_plugin_system.core.queue import JobQueue, SequenceStep, JobStatus
+    from cjm_plugin_system.core.queue import JobQueue
+    from cjm_plugin_system.core.ports import Composition, CompositionNode, NodeState, OutputRef
 
     cfg = get_config()
     log.info(f"data_dir={cfg.data_dir}, models_dir={cfg.models_dir}")
@@ -130,10 +131,7 @@ def run_e2e() -> None:
     pm.get_plugin(lavasr_id).prefetch()
     log.info(f"prefetch() returned in {time.time() - t0:.1f}s")
 
-    # ffmpeg.convert writes to <ffmpeg_data_dir>/converted/<stem>.<fmt>.
-    ffmpeg_data_dir = Path(next(m for m in pm.discovered if m.name == FFMPEG_NAME).manifest["db_path"]).parent
-    predicted_wav = ffmpeg_data_dir / "converted" / f"{INPUT_AUDIO.stem}.{CONVERT_OUTPUT_FORMAT}"
-    log.info(f"ffmpeg will convert {INPUT_AUDIO.name} -> {predicted_wav} "
+    log.info(f"ffmpeg will convert {INPUT_AUDIO.name} "
              f"(sample_rate={CONVERT_SAMPLE_RATE}, channels={CONVERT_CHANNELS})")
 
     convert_kwargs = {
@@ -145,46 +143,40 @@ def run_e2e() -> None:
     if CONVERT_CHANNELS is not None:
         convert_kwargs["channels"] = CONVERT_CHANNELS
 
-    async def run_sequence() -> Any:
+    # CR-16 (stage 3): the composition binds lavasr's `input_path` to ffmpeg's
+    # ACTUAL hashed cache_dir_for_config output path at execution time via
+    # OutputRef — the predict-the-path pattern is retired.
+    async def run_composition() -> Any:
         queue = JobQueue(deps=pm, sysmon_plugin_name=SYSMON_NAME)
         await queue.start()
         try:
-            seq_id = await queue.submit_sequence(
-                steps=[
-                    SequenceStep(plugin_instance_id=FFMPEG_NAME, kwargs=convert_kwargs),
-                    SequenceStep(plugin_instance_id=lavasr_id, kwargs={
-                        "action": "enhance_speech", "input_path": str(predicted_wav),
-                    }),
-                ],
-                fail_fast=True,
-            )
-            log.info(f"Submitted sequence {seq_id}: ffmpeg.convert -> lavasr.enhance_speech")
-            terminal = {JobStatus.completed, JobStatus.failed, JobStatus.cancelled}
-            while True:
-                seq = queue.get_sequence(seq_id)
-                if seq is None:
-                    raise RuntimeError(f"sequence {seq_id} disappeared")
-                if seq.status in terminal:
-                    break
-                await asyncio.sleep(0.5)
-            if seq.status != JobStatus.completed:
-                raise RuntimeError(f"Sequence {seq_id} status={seq.status}; results={seq.results}")
-            return seq.results
+            comp_id = await queue.submit_composition(Composition(nodes=[
+                CompositionNode("convert", FFMPEG_NAME, convert_kwargs),
+                CompositionNode("enhance", lavasr_id, {
+                    "action": "enhance_speech",
+                    "input_path": OutputRef("convert", "output_path"),
+                }),
+            ]))
+            log.info(f"Submitted composition {comp_id}: ffmpeg.convert -> lavasr.enhance_speech")
+            run = await queue.wait_for_composition(comp_id)
+            if run.status != NodeState.completed:
+                raise RuntimeError(f"Composition {comp_id} status={run.status}; nodes={run.node_runs}")
+            return run.results_by_node()
         finally:
             await queue.stop()
 
-    log.info(f"Submitting submit_sequence for {INPUT_AUDIO.name}...")
+    log.info(f"Submitting composition for {INPUT_AUDIO.name}...")
     t0 = time.time()
-    results = asyncio.run(run_sequence())
-    log.info(f"Sequence completed in {time.time() - t0:.1f}s")
+    results = asyncio.run(run_composition())
+    log.info(f"Composition completed in {time.time() - t0:.1f}s")
 
-    # Step 1 (ffmpeg) result: log the converted wav so the user can compare input vs output.
-    conv = results[0].result
-    conv_path = conv.get("output_path") if isinstance(conv, dict) else getattr(conv, "output_path", None)
+    # Convert-node result: log the converted wav so the user can compare input vs output.
+    conv = results["convert"]
+    conv_path = (conv or {}).get("output_path")  # plugin-side dict (untyped until stage 8)
     log.info(f"CONVERTED INPUT (listen): {conv_path}")
 
-    # Step 2 (lavasr) result.
-    result = results[-1].result
+    # Enhance-node result.
+    result = results["enhance"]
     out_path = (result or {}).get("output_path")  # processing results are plugin-side dicts (untyped until stage 8)
     assert out_path and Path(out_path).exists(), f"enhanced output missing: {out_path} (result={result!r})"
     # Q3 Layer B: output dir is the content+config-addressed cache dir.
