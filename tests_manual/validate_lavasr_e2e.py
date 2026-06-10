@@ -185,7 +185,7 @@ def run_e2e() -> None:
 
     # Step 2 (lavasr) result.
     result = results[-1].result
-    out_path = result.get("output_path") if isinstance(result, dict) else getattr(result, "output_path", None)
+    out_path = (result or {}).get("output_path")  # processing results are plugin-side dicts (untyped until stage 8)
     assert out_path and Path(out_path).exists(), f"enhanced output missing: {out_path} (result={result!r})"
     # Q3 Layer B: output dir is the content+config-addressed cache dir.
     assert "enhance_speech" in out_path, f"output not under cache_dir_for_config layout: {out_path}"
