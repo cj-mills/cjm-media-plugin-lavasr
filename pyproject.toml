@@ -16,7 +16,7 @@ classifiers = ["Natural Language :: English", "Intended Audience :: Developers",
 # environment.yml (`LavaSR @ git+https://...`), NOT here — PyPI rejects direct-URL deps
 # (incl. in extras), and the plugin always runs in its own conda env built from
 # environment.yml. is_available() degrades gracefully when LavaSR is absent.
-dependencies = ['cjm_media_plugin_system>=0.0.17', 'cjm-torch-plugin-utils>=0.0.7', 'cjm-hf-plugin-utils>=0.0.8']
+dependencies = ['cjm_media_plugin_system>=0.0.18', 'cjm-torch-plugin-utils>=0.0.7', 'cjm-hf-plugin-utils>=0.0.8']
 
 [project.urls]
 Repository = "https://github.com/cj-mills/cjm-media-plugin-lavasr"
